@@ -10,7 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://maven.pkg.github.com/RikkaShizuku/Shizuku-API")
     }
 }
 rootProject.name = "AppLens"
