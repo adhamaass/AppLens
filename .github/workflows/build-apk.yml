@@ -1,0 +1,67 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+    - name: Generate Gradle wrapper
+      working-directory: android
+      run: |
+        gradle wrapper --gradle-version 8.9
+        chmod +x gradlew
+
+    - name: Build debug APK
+      working-directory: android
+      run: ./gradlew assembleDebug --no-daemon -x lint
+
+    - name: Rename APK
+      run: |
+        mkdir -p output
+        cp android/app/build/outputs/apk/debug/app-debug.apk output/AppLens-v2.0.apk
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AppLens-APK
+        path: output/AppLens-v2.0.apk
+        retention-days: 90
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v2.0.0
+        name: AppLens v2.0 - On-Device
+        body: |
+          AppLens v2.0 - Full on-device processing
+          
+          No PC needed. No backend server. Everything runs on your phone.
+          
+          How to use:
+          1. Download AppLens-v2.0.apk below
+          2. Install it on your phone
+          3. Install Shizuku from Play Store
+          4. Start Shizuku via Wireless Debugging
+          5. Open AppLens, grant permissions
+          6. Pick any app and extract
+          7. ZIP saves to Downloads/AppLens/
+        files: output/AppLens-v2.0.apk
