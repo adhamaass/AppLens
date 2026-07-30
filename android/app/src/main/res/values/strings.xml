@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AppLens</string>
+    <string name="accessibility_description">AppLens uses accessibility to traverse app screens and extract UI structure for analysis.</string>
+</resources>

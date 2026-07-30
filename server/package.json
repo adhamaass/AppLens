@@ -1,0 +1,16 @@
+{
+  "name": "applens-backend",
+  "version": "1.0.0",
+  "description": "AppLens backend - processes extracted UI XML and returns a ZIP",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "fast-xml-parser": "^4.5.0",
+    "archiver": "^7.0.1",
+    "cors": "^2.8.5"
+  }
+}

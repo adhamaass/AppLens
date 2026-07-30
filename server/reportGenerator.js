@@ -1,0 +1,159 @@
+/**
+ * Generate a Markdown report summarizing the extraction.
+ */
+
+function generateReport(data) {
+  const { appName, packageName, version, metadata, screenNames, navEdges, components } = data;
+
+  let report = `# AppLens Extraction Report\n\n`;
+  report += `**App:** ${appName || 'Unknown'}\n`;
+  report += `**Package:** ${packageName}\n`;
+  report += `**Version:** ${version || 'Unknown'}\n`;
+  report += `**Generated:** ${new Date().toISOString()}\n\n`;
+
+  report += `---\n\n`;
+
+  // Summary stats
+  report += `## Summary Statistics\n\n`;
+  report += `| Metric | Value |\n`;
+  report += `|--------|-------|\n`;
+  report += `| Screens Extracted | ${screenNames.length} |\n`;
+  report += `| Navigation Edges | ${navEdges.length} |\n`;
+  report += `| Total UI Components | ${components.reduce((sum, c) => sum + (c.tree?.nodeCount || 0), 0)} |\n`;
+
+  if (metadata) {
+    report += `| Activities Declared | ${metadata.activities?.length || 0} |\n`;
+    report += `| Services Declared | ${metadata.services?.length || 0} |\n`;
+    report += `| Receivers Declared | ${metadata.receivers?.length || 0} |\n`;
+    report += `| Providers Declared | ${metadata.providers?.length || 0} |\n`;
+    report += `| Permissions Requested | ${metadata.permissions?.length || 0} |\n`;
+    report += `| Target SDK | ${metadata.sdkInfo?.targetSdk || 'N/A'} |\n`;
+    report += `| Min SDK | ${metadata.sdkInfo?.minSdk || 'N/A'} |\n`;
+  }
+
+  report += `\n`;
+
+  // Max depth reached
+  const maxDepth = Math.max(...screenNames.map(s => s.depth || 0));
+  report += `**Max Depth Reached:** ${maxDepth}\n\n`;
+
+  // Screens detail
+  report += `---\n\n`;
+  report += `## Screens Extracted\n\n`;
+  report += `| # | Screen ID | Activity | Depth | Clickables | Patterns |\n`;
+  report += `|---|-----------|----------|-------|------------|----------|\n`;
+
+  screenNames.forEach((screen, i) => {
+    const patterns = (screen.patterns || []).join(', ') || 'None';
+    report += `| ${i + 1} | ${screen.id} | ${screen.activityName} | ${screen.depth} | ${screen.clickCount} | ${patterns} |\n`;
+  });
+
+  report += `\n`;
+
+  // Navigation graph
+  report += `---\n\n`;
+  report += `## Navigation Graph\n\n`;
+  if (navEdges.length === 0) {
+    report += `No navigation transitions detected.\n\n`;
+  } else {
+    report += `| From | To |\n`;
+    report += `|------|-----|\n`;
+    for (const edge of navEdges) {
+      report += `| ${edge.from} | ${edge.to} |\n`;
+    }
+    report += `\n`;
+    report += `*See \`flow.mmd\` for a Mermaid visualization.*\n\n`;
+  }
+
+  // Permissions
+  if (metadata && metadata.permissions && metadata.permissions.length > 0) {
+    report += `---\n\n`;
+    report += `## Permissions\n\n`;
+    report += `| Permission | Granted | Dangerous |\n`;
+    report += `|-----------|---------|----------|\n`;
+    for (const perm of metadata.permissions) {
+      report += `| \`${perm.name}\` | ${perm.granted ? 'Yes' : 'No'} | ${perm.dangerous ? 'Yes' : 'No'} |\n`;
+    }
+    report += `\n`;
+  }
+
+  // Activities
+  if (metadata && metadata.activities && metadata.activities.length > 0) {
+    report += `---\n\n`;
+    report += `## Declared Activities\n\n`;
+    for (const activity of metadata.activities) {
+      report += `- \`${activity}\`\n`;
+    }
+    report += `\n`;
+  }
+
+  // Services
+  if (metadata && metadata.services && metadata.services.length > 0) {
+    report += `---\n\n`;
+    report += `## Declared Services\n\n`;
+    for (const service of metadata.services) {
+      report += `- \`${service}\`\n`;
+    }
+    report += `\n`;
+  }
+
+  // Receivers
+  if (metadata && metadata.receivers && metadata.receivers.length > 0) {
+    report += `---\n\n`;
+    report += `## Broadcast Receivers\n\n`;
+    for (const receiver of metadata.receivers) {
+      report += `- \`${receiver}\`\n`;
+    }
+    report += `\n`;
+  }
+
+  // Providers
+  if (metadata && metadata.providers && metadata.providers.length > 0) {
+    report += `---\n\n`;
+    report += `## Content Providers\n\n`;
+    for (const provider of metadata.providers) {
+      report += `- \`${provider}\`\n`;
+    }
+    report += `\n`;
+  }
+
+  // Component breakdown per screen
+  report += `---\n\n`;
+  report += `## Component Breakdown Per Screen\n\n`;
+  for (const comp of components) {
+    if (comp.tree && comp.tree.root) {
+      const componentCounts = countComponentTypes(comp.tree.root);
+      report += `### ${comp.screenId}\n\n`;
+      report += `Total nodes: ${comp.tree.nodeCount}\n\n`;
+      const topComponents = Object.entries(componentCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+      if (topComponents.length > 0) {
+        report += `| Component | Count |\n|-----------|-------|\n`;
+        for (const [name, count] of topComponents) {
+          report += `| ${name} | ${count} |\n`;
+        }
+        report += `\n`;
+      }
+    }
+  }
+
+  report += `---\n\n`;
+  report += `*Generated by AppLens — no screenshots, no AI, purely deterministic XML analysis.*\n`;
+
+  return report;
+}
+
+function countComponentTypes(node) {
+  const counts = {};
+  function walk(n) {
+    if (!n) return;
+    const short = (n.class || 'View').split('.').pop();
+    counts[short] = (counts[short] || 0) + 1;
+    if (n.children) for (const c of n.children) walk(c);
+  }
+  walk(node);
+  return counts;
+}
+
+module.exports = { generateReport };
