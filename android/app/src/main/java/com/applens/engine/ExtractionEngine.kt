@@ -1,17 +1,14 @@
 package com.applens.engine
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Environment
 import com.applens.data.*
-import com.applens.network.ApiClient
+import com.applens.processor.ZipBuilder
 import com.applens.service.AppLensAccessibilityService
 import com.applens.util.ShizukuManager
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import java.io.File
 import java.security.MessageDigest
 
@@ -41,15 +38,8 @@ class ExtractionEngine private constructor(private val context: Context) {
     private val allScreens = mutableListOf<ScreenInfo>()
     private var screenCounter = 0
 
-    private var apiClient: ApiClient? = null
-
-    fun setBackendIp(ip: String) {
-        apiClient = ApiClient("http://$ip:3000")
-    }
-
-    fun startExtraction(packageName: String, backendIp: String) {
+    fun startExtraction(packageName: String) {
         if (isExtractionActive) return
-        setBackendIp(backendIp)
         targetPackage = packageName
         visitedScreens.clear()
         allScreens.clear()
@@ -83,22 +73,29 @@ class ExtractionEngine private constructor(private val context: Context) {
                 isExtractionActive = true
                 bfsTraversal(packageName)
 
-                // Upload to backend
+                // Process on-device and build ZIP
                 isExtractionActive = false
                 ExtractionState.update { it.copy(status = ExtractionStatus.Uploading) }
-                ExtractionState.addLog("Uploading ${allScreens.size} screens to backend...")
+                ExtractionState.addLog("Processing ${allScreens.size} screens on-device...")
 
-                val zipBytes = apiClient?.analyze(
+                // Save ZIP to Downloads
+                val outputDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Use app-specific external storage on Android 10+
+                    File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "AppLens")
+                } else {
+                    File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AppLens")
+                }
+                outputDir.mkdirs()
+
+                ExtractionState.addLog("Generating wireframes, components, navigation graph...")
+                val zipFile = ZipBuilder.buildZip(
+                    outputDir = outputDir,
                     appName = metadata.appName,
                     packageName = metadata.packageName,
                     version = metadata.version,
                     metadata = metadata,
                     screens = allScreens.toList()
                 )
-
-                // Save ZIP to internal storage
-                val zipFile = File(context.filesDir, "${packageName}_output.zip")
-                zipBytes?.let { zipFile.writeBytes(it) }
 
                 ExtractionState.update {
                     it.copy(
@@ -107,7 +104,8 @@ class ExtractionEngine private constructor(private val context: Context) {
                         screens = allScreens.toList()
                     )
                 }
-                ExtractionState.addLog("Extraction complete! ZIP saved: ${zipFile.absolutePath}")
+                ExtractionState.addLog("Done! ZIP saved to: ${zipFile.absolutePath}")
+                ExtractionState.addLog("File size: ${formatFileSize(zipFile.length())}")
 
             } catch (e: CancellationException) {
                 ExtractionState.addLog("Extraction cancelled", LogLevel.WARN)
@@ -134,100 +132,12 @@ class ExtractionEngine private constructor(private val context: Context) {
     private suspend fun bfsTraversal(packageName: String) {
         val maxDepth = ExtractionState.state.value.maxDepth
         val maxScreens = ExtractionState.state.value.maxScreens
-        val queue = ArrayDeque<Pair<String, Int>>() // (screenHash, depth)
 
         // Process the first (current) screen
         processCurrentScreen(packageName, depth = 0)
 
-        while (allScreens.size < maxScreens && extractionJob?.isActive == true) {
-            val service = AppLensAccessibilityService.instance
-            if (service == null) {
-                ExtractionState.addLog("Accessibility service not available", LogLevel.ERROR)
-                break
-            }
-
-            // Get root node and find clickable elements
-            val rootNode = service.getRootNode()
-            if (rootNode == null) {
-                ExtractionState.addLog("No root node available, waiting...", LogLevel.WARN)
-                delay(1000)
-                continue
-            }
-
-            val clickables = findClickableNodes(rootNode)
-            val activityName = ShizukuManager.getCurrentActivity()
-            val screenHash = hashScreen(activityName, getRootResourceId(rootNode))
-
-            if (visitedScreens.contains(screenHash)) {
-                // Already visited, go back
-                service.performBack()
-                delay(800)
-                continue
-            }
-
-            visitedScreens.add(screenHash)
-            ExtractionState.addLog("Exploring screen: $activityName (${clickables.size} clickables)")
-
-            // Dump XML for this screen
-            val xml = ShizukuManager.uiautomatorDump()
-            screenCounter++
-            val screen = ScreenInfo(
-                id = "screen_${screenCounter.toString().padStart(2, '0')}",
-                activityName = activityName,
-                xml = xml,
-                depth = 0,
-                clickCount = clickables.size
-            )
-            allScreens.add(screen)
-            saveXmlToStorage(screen.id, xml)
-
-            ExtractionState.update {
-                it.copy(
-                    screensFound = allScreens.size,
-                    currentActivity = activityName,
-                    currentDepth = 0
-                )
-            }
-
-            // Click each clickable element and explore
-            for ((index, clickable) in clickables.withIndex()) {
-                if (allScreens.size >= maxScreens) break
-                if (extractionJob?.isActive != true) break
-
-                ExtractionState.addLog("Clicking ${index + 1}/${clickables.size}: ${clickable.className}")
-                clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                delay(800)
-
-                // Check if we navigated to a new screen
-                val newActivity = ShizukuManager.getCurrentActivity()
-                if (newActivity != activityName && !newActivity.contains("InputMethod")) {
-                    // New screen! Process it at depth 1
-                    if (allScreens.size < maxScreens) {
-                        processCurrentScreen(packageName, depth = 1)
-                    }
-                    // Go back
-                    service.performBack()
-                    delay(800)
-                }
-            }
-
-            // Try scrolling if no new screens found
-            val scrollable = findScrollableNodes(rootNode)
-            for (scrollNode in scrollable) {
-                if (allScreens.size >= maxScreens) break
-                scrollNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                delay(800)
-                val newActivity = ShizukuManager.getCurrentActivity()
-                if (newActivity != activityName) {
-                    processCurrentScreen(packageName, depth = 1)
-                    service.performBack()
-                    delay(800)
-                }
-            }
-
-            // We've explored this screen fully, break if we're back at the top
-            break
-        }
+        // After processing the initial screen, the recursive call in processCurrentScreen
+        // handles exploring clickables at each depth level.
     }
 
     /**
@@ -242,7 +152,10 @@ class ExtractionEngine private constructor(private val context: Context) {
 
         delay(800) // Wait for screen to settle
 
-        val service = AppLensAccessibilityService.instance ?: return
+        val service = AppLensAccessibilityService.instance ?: run {
+            ExtractionState.addLog("Accessibility service not available", LogLevel.ERROR)
+            return
+        }
         val activityName = ShizukuManager.getCurrentActivity()
 
         // Ensure we're in the target app
@@ -252,9 +165,12 @@ class ExtractionEngine private constructor(private val context: Context) {
         if (visitedScreens.contains(screenHash)) return
         visitedScreens.add(screenHash)
 
-        // Dump XML
+        // Dump XML via Shizuku
         val xml = ShizukuManager.uiautomatorDump()
-        if (!xml.contains("<hierarchy")) return
+        if (!xml.contains("<hierarchy")) {
+            ExtractionState.addLog("Failed to dump XML for $activityName", LogLevel.WARN)
+            return
+        }
 
         screenCounter++
         val clickables = findClickableNodes(rootNode)
@@ -283,47 +199,69 @@ class ExtractionEngine private constructor(private val context: Context) {
                 if (allScreens.size >= maxScreens) break
                 if (extractionJob?.isActive != true) break
 
-                clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                ExtractionState.addLog("Clicking ${index + 1}/${clickables.size}: ${XmlProcessor_getClassName(clickable)}")
+                clickable.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
                 delay(800)
 
                 val newActivity = ShizukuManager.getCurrentActivity()
                 if (newActivity != activityName && !newActivity.contains("InputMethod")) {
+                    // New screen found — explore it
                     processCurrentScreen(packageName, depth + 1)
+                    // Go back
                     service.performBack()
                     delay(800)
                 }
             }
+
+            // Also try scrolling to find more content
+            val scrollable = findScrollableNodes(rootNode)
+            for (scrollNode in scrollable) {
+                if (allScreens.size >= maxScreens) break
+                if (extractionJob?.isActive != true) break
+
+                scrollNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                delay(800)
+                processCurrentScreen(packageName, depth + 1)
+                service.performBack()
+                delay(800)
+            }
         }
+    }
+
+    private fun XmlProcessor_getClassName(node: android.view.accessibility.AccessibilityNodeInfo): String {
+        return node.className?.toString()?.let {
+            it.split(".").lastOrNull() ?: it
+        } ?: "Unknown"
     }
 
     /**
      * Recursively find all clickable AccessibilityNodeInfo nodes.
      */
-    private fun findClickableNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
-        val result = mutableListOf<AccessibilityNodeInfo>()
-        findNodesByProperty(root) { node -> node.isClickable && node.isEnabled }
-        return result
-    }
-
-    private fun findScrollableNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
-        val result = mutableListOf<AccessibilityNodeInfo>()
-        findNodesByProperty(root) { node -> node.isScrollable }
-        return result
-    }
-
-    private fun findNodesByProperty(node: AccessibilityNodeInfo, predicate: (AccessibilityNodeInfo) -> Boolean): List<AccessibilityNodeInfo> {
-        val result = mutableListOf<AccessibilityNodeInfo>()
-        fun walk(n: AccessibilityNodeInfo) {
-            if (predicate(n)) result.add(n)
+    private fun findClickableNodes(root: android.view.accessibility.AccessibilityNodeInfo): List<android.view.accessibility.AccessibilityNodeInfo> {
+        val result = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+        fun walk(n: android.view.accessibility.AccessibilityNodeInfo) {
+            if (n.isClickable && n.isEnabled) result.add(n)
             for (i in 0 until n.childCount) {
                 n.getChild(i)?.let { walk(it) }
             }
         }
-        walk(node)
+        walk(root)
         return result
     }
 
-    private fun getRootResourceId(root: AccessibilityNodeInfo): String {
+    private fun findScrollableNodes(root: android.view.accessibility.AccessibilityNodeInfo): List<android.view.accessibility.AccessibilityNodeInfo> {
+        val result = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+        fun walk(n: android.view.accessibility.AccessibilityNodeInfo) {
+            if (n.isScrollable) result.add(n)
+            for (i in 0 until n.childCount) {
+                n.getChild(i)?.let { walk(it) }
+            }
+        }
+        walk(root)
+        return result
+    }
+
+    private fun getRootResourceId(root: android.view.accessibility.AccessibilityNodeInfo): String {
         return root.viewIdResourceName ?: root.className?.toString() ?: "unknown"
     }
 
@@ -354,8 +292,10 @@ class ExtractionEngine private constructor(private val context: Context) {
 
         // Permissions
         val permissions = mutableListOf<PermissionInfo>()
-        packageInfo.requestedPermissions?.forEach { permName ->
-            val granted = packageInfo.requestedPermissionsFlags?.any { it and android.content.pm.PackageInfo.REQUESTED_PERMISSION_GRANTED != 0 } ?: false
+        packageInfo.requestedPermissions?.forEachIndexed { index, permName ->
+            val granted = packageInfo.requestedPermissionsFlags?.getOrNull(index)?.let {
+                it and android.content.pm.PackageInfo.REQUESTED_PERMISSION_GRANTED != 0
+            } ?: false
             val isDangerous = try {
                 val permInfo = pm.getPermissionInfo(permName, 0)
                 permInfo.protectionLevel == android.content.pm.PermissionInfo.PROTECTION_DANGEROUS
@@ -363,53 +303,28 @@ class ExtractionEngine private constructor(private val context: Context) {
             permissions.add(PermissionInfo(permName, granted, isDangerous))
         }
 
-        // Activities
-        val activities = packageInfo.activities?.map { it.name } ?: emptyList()
-
-        // Services
-        val services = packageInfo.services?.map { it.name } ?: emptyList()
-
-        // Receivers
-        val receivers = packageInfo.receivers?.map { it.name } ?: emptyList()
-
-        // Providers
-        val providers = packageInfo.providers?.map { it.name } ?: emptyList()
-
-        // SDK info
-        val sdkInfo = SdkInfo(
-            minSdk = appInfo.minSdkVersion,
-            targetSdk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.DONUT) appInfo.targetSdkVersion else 0,
-            compileSdk = appInfo.compileSdkVersion
-        )
-
-        // Version
-        val version = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageInfo.longVersionName.toString()
-        } else {
-            @Suppress("DEPRECATION")
-            packageInfo.versionName ?: "unknown"
-        }
-
-        // Install/update dates
-        val installDate = try { packageInfo.firstInstallTime } catch (e: Exception) { 0L }
-        val lastUpdateDate = try { packageInfo.lastUpdateTime } catch (e: Exception) { 0L }
-
-        // App name
-        val appName = try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { packageName }
-
         return AppMetadata(
-            appName = appName,
+            appName = try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { packageName },
             packageName = packageName,
-            version = version,
+            version = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionName.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionName ?: "unknown"
+            },
             permissions = permissions,
-            activities = activities,
-            services = services,
-            receivers = receivers,
-            providers = providers,
-            sdkInfo = sdkInfo,
+            activities = packageInfo.activities?.map { it.name } ?: emptyList(),
+            services = packageInfo.services?.map { it.name } ?: emptyList(),
+            receivers = packageInfo.receivers?.map { it.name } ?: emptyList(),
+            providers = packageInfo.providers?.map { it.name } ?: emptyList(),
+            sdkInfo = SdkInfo(
+                minSdk = appInfo.minSdkVersion,
+                targetSdk = appInfo.targetSdkVersion,
+                compileSdk = appInfo.compileSdkVersion
+            ),
             apkPath = appInfo.sourceDir,
-            installDate = installDate,
-            lastUpdateDate = lastUpdateDate
+            installDate = try { packageInfo.firstInstallTime } catch (e: Exception) { 0L },
+            lastUpdateDate = try { packageInfo.lastUpdateTime } catch (e: Exception) { 0L }
         )
     }
 
@@ -420,6 +335,14 @@ class ExtractionEngine private constructor(private val context: Context) {
             pm.getApplicationLabel(info).toString()
         } catch (e: Exception) {
             packageName
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes > 1048576 -> "%.1f MB".format(bytes / 1048576.0)
+            bytes > 1024 -> "%.1f KB".format(bytes / 1024.0)
+            else -> "$bytes bytes"
         }
     }
 }

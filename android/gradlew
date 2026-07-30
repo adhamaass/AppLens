@@ -1,0 +1,19 @@
+#!/bin/sh
+# Gradle wrapper script - download gradle-wrapper.jar by running: gradle wrapper
+# Or download from: https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_HOME="$DIR"
+
+# If gradle-wrapper.jar is missing, download it
+if [ ! -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ]; then
+    echo "Downloading gradle-wrapper.jar..."
+    curl -sL -o "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
+        "https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar"
+    if [ ! -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ]; then
+        echo "Failed to download. Please run 'gradle wrapper' to generate it."
+        exit 1
+    fi
+fi
+
+exec java -cp "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"

@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,6 +21,7 @@ fun DoneScreen(
     onRestart: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
     val isError = state.status == ExtractionStatus.Error
     var zipExists by remember { mutableStateOf(false) }
     var zipSize by remember { mutableStateOf("") }
@@ -40,10 +42,7 @@ fun DoneScreen(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(scrollState),
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(40.dp))
@@ -60,7 +59,6 @@ fun DoneScreen(
             Text("Extraction Complete", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Summary card
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("Summary", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
@@ -86,7 +84,7 @@ fun DoneScreen(
                     if (zipExists) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         SummaryRow("ZIP File Size", zipSize)
-                        SummaryRow("ZIP Location", state.zipUrl ?: "N/A")
+                        SummaryRow("ZIP Location", "Downloads/AppLens/")
                     }
                 }
             }
@@ -96,26 +94,22 @@ fun DoneScreen(
             if (zipExists) {
                 Button(
                     onClick = {
-                        // Share the ZIP file
                         state.zipUrl?.let { path ->
                             val file = File(path)
-                            val ctx = androidx.compose.ui.platform.LocalContext.current
                             val intent = android.content.Intent(android.content.Intent.ACTION_SEND)
                             intent.type = "application/zip"
                             val uri = androidx.core.content.FileProvider.getUriForFile(
-                                ctx,
-                                "${ctx.packageName}.fileprovider",
+                                context,
+                                "${context.packageName}.fileprovider",
                                 file
                             )
                             intent.putExtra(android.content.Intent.EXTRA_STREAM, uri)
                             intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            ctx.startActivity(android.content.Intent.createChooser(intent, "Share ZIP"))
+                            context.startActivity(android.content.Intent.createChooser(intent, "Share ZIP File"))
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Share ZIP File")
-                }
+                ) { Text("Share ZIP File") }
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }
@@ -126,12 +120,9 @@ fun DoneScreen(
             onClick = onRestart,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isError) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.primary
+                containerColor = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
             )
-        ) {
-            Text(if (isError) "Try Again" else "Extract Another App")
-        }
+        ) { Text(if (isError) "Try Again" else "Extract Another App") }
 
         Spacer(modifier = Modifier.height(32.dp))
     }
@@ -140,9 +131,7 @@ fun DoneScreen(
 @Composable
 private fun SummaryRow(label: String, value: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)

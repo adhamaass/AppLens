@@ -7,6 +7,9 @@
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- For saving ZIP to Downloads on Android < 10 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".AppLensApp"
@@ -14,8 +17,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="AppLens"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppLens"
-        android:usesCleartextTraffic="true">
+        android:theme="@style/Theme.AppLens">
 
         <activity
             android:name=".MainActivity"
