@@ -8,14 +8,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.applens.data.ExtractionStateData
 import com.applens.data.ExtractionStatus
 import com.applens.data.LogEntry
 import com.applens.data.LogLevel
 import com.applens.engine.ExtractionEngine
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -26,6 +29,7 @@ fun ProgressScreen(
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Auto-scroll to bottom on new logs
     LaunchedEffect(state.logs.size) {
@@ -51,7 +55,7 @@ fun ProgressScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = {
-                ExtractionEngine.getInstance(androidx.compose.ui.platform.LocalContext.current).stopExtraction()
+                ExtractionEngine.getInstance(context).stopExtraction()
                 onBack()
             }) { Text("Cancel") }
 
@@ -60,7 +64,7 @@ fun ProgressScreen(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.width(56.dp))
         }
@@ -111,7 +115,7 @@ fun ProgressScreen(
                 Text(
                     when (state.status) {
                         ExtractionStatus.Running -> "Traversing UI..."
-                        ExtractionStatus.Uploading -> "Uploading to backend..."
+                        ExtractionStatus.Uploading -> "Processing on-device..."
                         ExtractionStatus.Done -> "Complete!"
                         ExtractionStatus.Error -> "Error occurred"
                         else -> ""
