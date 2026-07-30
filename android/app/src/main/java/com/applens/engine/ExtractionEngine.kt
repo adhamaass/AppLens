@@ -306,12 +306,7 @@ class ExtractionEngine private constructor(private val context: Context) {
         return AppMetadata(
             appName = try { pm.getApplicationLabel(appInfo).toString() } catch (e: Exception) { packageName },
             packageName = packageName,
-            version = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionName.toString()
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionName ?: "unknown"
-            },
+            version = @Suppress("DEPRECATION") packageInfo.versionName ?: "unknown",
             permissions = permissions,
             activities = packageInfo.activities?.map { it.name } ?: emptyList(),
             services = packageInfo.services?.map { it.name } ?: emptyList(),
