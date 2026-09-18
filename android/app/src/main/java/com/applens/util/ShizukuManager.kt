@@ -2,7 +2,6 @@ package com.applens.util
 
 import android.content.pm.PackageManager
 import android.content.pm.PackageInfo
-import android.content.pm.ApplicationInfo
 import android.os.Build
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
@@ -34,95 +33,87 @@ object ShizukuManager {
         }
     }
 
-    /**
-     * Execute a shell command via Shizuku with ADB-level privileges.
-     */
     fun executeShell(command: String): String {
-        val method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+        val method = Shizuku::class.java.getDeclaredMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Array<String>::class.java,
+            String::class.java
+        )
         method.isAccessible = true
         val process = method.invoke(null, arrayOf("sh", "-c", command), null, null) as java.lang.Process
         val reader = BufferedReader(InputStreamReader(process.inputStream))
-        val errorReader = BufferedReader(InputStreamReader(process.errorStream))
         val output = StringBuilder()
         var line: String?
         while (reader.readLine().also { line = it } != null) {
             output.appendLine(line)
         }
-        val errorOutput = StringBuilder()
-        while (errorReader.readLine().also { line = it } != null) {
-            errorOutput.appendLine(line)
-        }
         process.waitFor()
-        if (process.exitValue() != 0 && errorOutput.isNotEmpty()) {
-            throw RuntimeException("Shell error: $errorOutput")
-        }
         return output.toString()
     }
 
-    /**
-     * Run uiautomator dump on the current screen.
-     */
     fun uiautomatorDump(): String {
-        val result = executeShell("uiautomator dump --compressed /dev/tty 2>/dev/null")
-        // Some devices write to a file instead
-        return if (result.contains("<hierarchy")) {
-            result.trim()
-        } else {
-            // Try reading the default dump file
-            val fileContent = executeShell("cat /sdcard/window_dump.xml 2>/dev/null")
-            fileContent.trim()
+        return try {
+            val tmpDump = "/data/local/tmp/applens_dump.xml"
+            executeShell("rm -f " + tmpDump)
+            executeShell("uiautomator dump " + tmpDump)
+            val content = executeShell("cat " + tmpDump)
+            if (content.contains("<hierarchy")) {
+                content.trim()
+            } else {
+                val direct = executeShell("uiautomator dump /dev/tty")
+                if (direct.contains("<hierarchy")) direct.trim() else ""
+            }
+        } catch (e: Exception) {
+            ""
         }
     }
 
-    /**
-     * Get the current foreground activity name.
-     */
     fun getCurrentActivity(): String {
         return try {
-            val result = executeShell("dumpsys activity activities | grep mResumedActivity")
-            val regex = Regex("mResumedActivity.*?\\{.*?\\s(\\S+?)\\s")
-            regex.find(result)?.groupValues?.get(1) ?: "Unknown"
+            val output = executeShell("dumpsys window | grep -E "mCurrentFocus|mFocusedApp"")
+            val regex = Regex("([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
+            val match = regex.find(output)?.groupValues?.get(1)
+            if (match != null) {
+                match
+            } else {
+                val actOutput = executeShell("dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity"")
+                regex.find(actOutput)?.groupValues?.get(1) ?: "Unknown"
+            }
         } catch (e: Exception) {
             "Unknown"
         }
     }
 
-    /**
-     * Force-stop an app.
-     */
     fun forceStopApp(packageName: String) {
-        executeShell("am force-stop $packageName")
+        executeShell("am force-stop " + packageName)
     }
 
-    /**
-     * Launch an app by package name.
-     */
     fun launchApp(packageName: String) {
-        executeShell("monkey -p $packageName -c android.intent.category.LAUNCHER 1")
+        executeShell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1")
     }
 
-    /**
-     * Get the installed package info using Shizuku's PackageManager.
-     */
     fun getPackageInfo(pm: PackageManager, packageName: String): PackageInfo {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(
-                    packageName,
-                    PackageManager.GET_PERMISSIONS or
-                    PackageManager.GET_ACTIVITIES or
-                    PackageManager.GET_SERVICES or
-                    PackageManager.GET_RECEIVERS or
-                    PackageManager.GET_PROVIDERS or
-                    PackageManager.GET_META_DATA
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                pm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or PackageManager.GET_PROVIDERS)
-            }
-        } catch (e: Exception) {
-            // Fallback via Shizuku shell: dumpsys package
-            throw e
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(
+                packageName,
+                PackageManager.GET_PERMISSIONS or
+                PackageManager.GET_ACTIVITIES or
+                PackageManager.GET_SERVICES or
+                PackageManager.GET_RECEIVERS or
+                PackageManager.GET_PROVIDERS or
+                PackageManager.GET_META_DATA
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(
+                packageName,
+                PackageManager.GET_PERMISSIONS or
+                PackageManager.GET_ACTIVITIES or
+                PackageManager.GET_SERVICES or
+                PackageManager.GET_RECEIVERS or
+                PackageManager.GET_PROVIDERS
+            )
         }
     }
 }

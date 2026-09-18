@@ -150,32 +150,46 @@ class ExtractionEngine private constructor(private val context: Context) {
         if (depth > maxDepth || allScreens.size >= maxScreens) return
         if (extractionJob?.isActive != true) return
 
-        delay(800) // Wait for screen to settle
+        var service = AppLensAccessibilityService.instance
+        var retryCount = 0
+        var rootNode = service?.getRootNode()
 
-        val service = AppLensAccessibilityService.instance ?: run {
-            ExtractionState.addLog("Accessibility service not available", LogLevel.ERROR)
+        // Wait up to 5 seconds for service and window to be ready
+        while ((service == null || rootNode == null) && retryCount < 10 && extractionJob?.isActive == true) {
+            delay(500)
+            service = AppLensAccessibilityService.instance
+            rootNode = service?.getRootNode()
+            retryCount++
+        }
+
+        if (service == null) {
+            ExtractionState.addLog("Accessibility service not connected", LogLevel.ERROR)
             return
         }
-        val activityName = ShizukuManager.getCurrentActivity()
 
-        // Ensure we're in the target app
-        val rootNode = service.getRootNode() ?: return
-        val screenHash = hashScreen(activityName, getRootResourceId(rootNode))
+        val activityName = ShizukuManager.getCurrentActivity()
+        val screenHash = if (rootNode != null) hashScreen(activityName, getRootResourceId(rootNode)) else "screen_hash_${System.currentTimeMillis()}"
 
         if (visitedScreens.contains(screenHash)) return
         visitedScreens.add(screenHash)
 
-        // Dump XML via Shizuku
-        val xml = ShizukuManager.uiautomatorDump()
+        // Try dumping XML via Shizuku
+        var xml = ShizukuManager.uiautomatorDump()
+        var dumpRetries = 0
+        while (!xml.contains("<hierarchy") && dumpRetries < 3) {
+            delay(600)
+            xml = ShizukuManager.uiautomatorDump()
+            dumpRetries++
+        }
+
         if (!xml.contains("<hierarchy")) {
-            ExtractionState.addLog("Failed to dump XML for $activityName", LogLevel.WARN)
-            return
+            ExtractionState.addLog("Failed to dump XML for $activityName, continuing...", LogLevel.WARN)
         }
 
         screenCounter++
-        val clickables = findClickableNodes(rootNode)
+        val clickables = if (rootNode != null) findClickableNodes(rootNode) else emptyList()
         val screen = ScreenInfo(
-            id = "screen_${screenCounter.toString().padStart(2, '0')}",
+            id = "screen_${screenCounter.toString().padStart(2, "0")}",
             activityName = activityName,
             xml = xml,
             depth = depth,
@@ -194,49 +208,25 @@ class ExtractionEngine private constructor(private val context: Context) {
         ExtractionState.addLog("Screen ${screen.id}: $activityName (depth $depth, ${clickables.size} clicks)")
 
         // Recursively explore clickable children
-        if (depth < maxDepth) {
+        if (depth < maxDepth && clickables.isNotEmpty()) {
             for ((index, clickable) in clickables.withIndex()) {
                 if (allScreens.size >= maxScreens) break
                 if (extractionJob?.isActive != true) break
 
-                ExtractionState.addLog("Clicking ${index + 1}/${clickables.size}: ${XmlProcessor_getClassName(clickable)}")
+                ExtractionState.addLog("Clicking ${index + 1}/${clickables.size}")
                 clickable.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
-                delay(800)
+                delay(1200)
 
                 val newActivity = ShizukuManager.getCurrentActivity()
                 if (newActivity != activityName && !newActivity.contains("InputMethod")) {
-                    // New screen found — explore it
                     processCurrentScreen(packageName, depth + 1)
-                    // Go back
-                    service.performBack()
+                    service?.performBack()
                     delay(800)
                 }
-            }
-
-            // Also try scrolling to find more content
-            val scrollable = findScrollableNodes(rootNode)
-            for (scrollNode in scrollable) {
-                if (allScreens.size >= maxScreens) break
-                if (extractionJob?.isActive != true) break
-
-                scrollNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                delay(800)
-                processCurrentScreen(packageName, depth + 1)
-                service.performBack()
-                delay(800)
             }
         }
     }
 
-    private fun XmlProcessor_getClassName(node: android.view.accessibility.AccessibilityNodeInfo): String {
-        return node.className?.toString()?.let {
-            it.split(".").lastOrNull() ?: it
-        } ?: "Unknown"
-    }
-
-    /**
-     * Recursively find all clickable AccessibilityNodeInfo nodes.
-     */
     private fun findClickableNodes(root: android.view.accessibility.AccessibilityNodeInfo): List<android.view.accessibility.AccessibilityNodeInfo> {
         val result = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
         fun walk(n: android.view.accessibility.AccessibilityNodeInfo) {
