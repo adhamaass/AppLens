@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
                     val extractionState by ExtractionState.state.collectAsState()
 
                     LaunchedEffect(extractionState.status) {
-                        if (extractionState.status == ExtractionStatus.Completed) {
+                        if (extractionState.status == ExtractionStatus.Done) {
                             currentScreen = Screen.DONE
                         }
                     }
