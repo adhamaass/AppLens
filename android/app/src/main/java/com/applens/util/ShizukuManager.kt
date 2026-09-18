@@ -76,16 +76,17 @@ object ShizukuManager {
 
     fun getCurrentActivity(): String {
         return try {
-            val output = executeShell("dumpsys window windows")
-            val regex = Regex("mCurrentFocus=Window\{.*?\s([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
-            val match = regex.find(output)?.groupValues?.get(1)
-            if (match != null) {
-                match
-            } else {
-                val actOutput = executeShell("dumpsys activity top")
-                val actRegex = Regex("ACTIVITY\s([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
-                actRegex.find(actOutput)?.groupValues?.get(1) ?: "Unknown"
+            val output = executeShell("dumpsys activity top")
+            for (line in output.lines()) {
+                val trimmed = line.trim()
+                if (trimmed.startsWith("ACTIVITY ")) {
+                    val parts = trimmed.split(" ")
+                    if (parts.size >= 2) {
+                        return parts[1]
+                    }
+                }
             }
+            "Unknown"
         } catch (e: Exception) {
             "Unknown"
         }
