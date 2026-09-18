@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
                         Screen.PICKER -> {
                             AppPickerScreen(
                                 onAppSelected = { pkg ->
-                                    extractionState = extractionState.copy(packageName = pkg)
+                                    extractionState = extractionState.copy(currentPackage = pkg)
                                     currentScreen = Screen.PROGRESS
                                 },
                                 onBack = { currentScreen = Screen.ONBOARDING }
