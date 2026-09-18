@@ -8,7 +8,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import com.applens.data.ExtractionStateData
+import com.applens.data.ExtractionState
+import com.applens.data.ExtractionStatus
+import com.applens.engine.ExtractionEngine
 import com.applens.ui.AppPickerScreen
 import com.applens.ui.DoneScreen
 import com.applens.ui.OnboardingScreen
@@ -31,7 +33,13 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     var currentScreen by remember { mutableStateOf(Screen.ONBOARDING) }
-                    var extractionState by remember { mutableStateOf(ExtractionStateData()) }
+                    val extractionState by ExtractionState.state.collectAsState()
+
+                    LaunchedEffect(extractionState.status) {
+                        if (extractionState.status == ExtractionStatus.Completed) {
+                            currentScreen = Screen.DONE
+                        }
+                    }
 
                     when (currentScreen) {
                         Screen.ONBOARDING -> {
@@ -42,7 +50,7 @@ class MainActivity : ComponentActivity() {
                         Screen.PICKER -> {
                             AppPickerScreen(
                                 onAppSelected = { pkg ->
-                                    extractionState = extractionState.copy(currentPackage = pkg)
+                                    ExtractionEngine.getInstance(this@MainActivity).startExtraction(pkg)
                                     currentScreen = Screen.PROGRESS
                                 },
                                 onBack = { currentScreen = Screen.ONBOARDING }
