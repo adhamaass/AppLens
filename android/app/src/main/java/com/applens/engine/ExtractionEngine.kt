@@ -189,7 +189,7 @@ class ExtractionEngine private constructor(private val context: Context) {
         screenCounter++
         val clickables = if (rootNode != null) findClickableNodes(rootNode) else emptyList()
         val screen = ScreenInfo(
-            id = "screen_${screenCounter.toString().padStart(2, "0")}",
+            id = "screen_${screenCounter.toString().padStart(2, '0')}",
             activityName = activityName,
             xml = xml,
             depth = depth,

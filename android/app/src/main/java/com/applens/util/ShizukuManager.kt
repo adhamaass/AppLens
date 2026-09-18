@@ -43,10 +43,15 @@ object ShizukuManager {
         method.isAccessible = true
         val process = method.invoke(null, arrayOf("sh", "-c", command), null, null) as java.lang.Process
         val reader = BufferedReader(InputStreamReader(process.inputStream))
+        val errorReader = BufferedReader(InputStreamReader(process.errorStream))
         val output = StringBuilder()
         var line: String?
         while (reader.readLine().also { line = it } != null) {
             output.appendLine(line)
+        }
+        val errorOutput = StringBuilder()
+        while (errorReader.readLine().also { line = it } != null) {
+            errorOutput.appendLine(line)
         }
         process.waitFor()
         return output.toString()
@@ -71,14 +76,15 @@ object ShizukuManager {
 
     fun getCurrentActivity(): String {
         return try {
-            val output = executeShell("dumpsys window | grep -E "mCurrentFocus|mFocusedApp"")
-            val regex = Regex("([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
+            val output = executeShell("dumpsys window windows")
+            val regex = Regex("mCurrentFocus=Window\{.*?\s([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
             val match = regex.find(output)?.groupValues?.get(1)
             if (match != null) {
                 match
             } else {
-                val actOutput = executeShell("dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity"")
-                regex.find(actOutput)?.groupValues?.get(1) ?: "Unknown"
+                val actOutput = executeShell("dumpsys activity top")
+                val actRegex = Regex("ACTIVITY\s([a-zA-Z0-9._]+/[a-zA-Z0-9._]+)")
+                actRegex.find(actOutput)?.groupValues?.get(1) ?: "Unknown"
             }
         } catch (e: Exception) {
             "Unknown"
