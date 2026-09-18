@@ -153,6 +153,17 @@ class ExtractionEngine private constructor(private val context: Context) {
         var service = AppLensAccessibilityService.instance
         var retryCount = 0
         var rootNode = service?.getRootNode()
+        var currentAct = ShizukuManager.getCurrentActivity()
+
+        // Wait until foreground activity belongs to the target package
+        while (!currentAct.contains(packageName) && retryCount < 10 && extractionJob?.isActive == true) {
+            delay(800)
+            ShizukuManager.launchApp(packageName)
+            service = AppLensAccessibilityService.instance
+            rootNode = service?.getRootNode()
+            currentAct = ShizukuManager.getCurrentActivity()
+            retryCount++
+        }
 
         // Wait up to 5 seconds for service and window to be ready
         while ((service == null || rootNode == null) && retryCount < 10 && extractionJob?.isActive == true) {

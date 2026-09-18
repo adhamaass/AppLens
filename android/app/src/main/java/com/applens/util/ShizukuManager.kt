@@ -97,7 +97,10 @@ object ShizukuManager {
     }
 
     fun launchApp(packageName: String) {
+        // First try standard monkey launch
         executeShell("monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1")
+        // Also send explicit monkey intent to bring to front
+        executeShell("am start-activity -n $(cmd package resolve-activity --brief " + packageName + " | tail -n 1) 2>/dev/null")
     }
 
     fun getPackageInfo(pm: PackageManager, packageName: String): PackageInfo {
