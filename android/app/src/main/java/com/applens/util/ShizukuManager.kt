@@ -38,7 +38,9 @@ object ShizukuManager {
      * Execute a shell command via Shizuku with ADB-level privileges.
      */
     fun executeShell(command: String): String {
-        val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+        val method = Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+        method.isAccessible = true
+        val process = method.invoke(null, arrayOf("sh", "-c", command), null, null) as java.lang.Process
         val reader = BufferedReader(InputStreamReader(process.inputStream))
         val errorReader = BufferedReader(InputStreamReader(process.errorStream))
         val output = StringBuilder()

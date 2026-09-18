@@ -27,38 +27,3 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppLensApp() {
-    var phase by remember { mutableStateOf(ExtractionPhase.Onboarding) }
-    val state by ExtractionState.state.collectAsState()
-
-    when (phase) {
-        ExtractionPhase.Onboarding -> {
-            OnboardingScreen(onProceed = { phase = ExtractionPhase.Picking })
-        }
-        ExtractionPhase.Picking -> {
-            AppPickerScreen(
-                onAppSelected = { packageName ->
-                    ExtractionState.startExtraction(packageName)
-                    phase = ExtractionPhase.Extracting
-                },
-                onBack = { phase = ExtractionPhase.Onboarding }
-            )
-        }
-        ExtractionPhase.Extracting -> {
-            ProgressScreen(
-                state = state,
-                onComplete = { phase = ExtractionPhase.Done },
-                onBack = { phase = ExtractionPhase.Picking }
-            )
-        }
-        ExtractionPhase.Done -> {
-            DoneScreen(
-                state = state,
-                onRestart = {
-                    ExtractionState.reset()
-                    phase = ExtractionPhase.Picking
-                }
-            )
-        }
-    }
-}
