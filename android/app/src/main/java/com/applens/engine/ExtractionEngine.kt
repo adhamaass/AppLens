@@ -56,12 +56,28 @@ class ExtractionEngine private constructor(private val context: Context) {
                 }
                 ExtractionState.addLog("Starting extraction for $packageName")
 
-                // Force stop and relaunch
+                // Force stop and relaunch via Android Intent + Shizuku
                 ShizukuManager.forceStopApp(packageName)
-                delay(1000)
-                ShizukuManager.launchApp(packageName)
-                delay(2000)
-                ExtractionState.addLog("App launched: $packageName")
+                delay(800)
+                try {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                        context.startActivity(launchIntent)
+                    } else {
+                        ShizukuManager.launchApp(packageName)
+                    }
+                } catch (e: Exception) {
+                    ShizukuManager.launchApp(packageName)
+                }
+
+                // Wait until the target package is actually in the foreground
+                var waitCount = 0
+                while (!ShizukuManager.getCurrentActivity().contains(packageName) && waitCount < 10) {
+                    delay(500)
+                    waitCount++
+                }
+                ExtractionState.addLog("App launched into foreground: $packageName")
 
                 // Collect metadata first
                 ExtractionState.addLog("Collecting app metadata...")
