@@ -214,14 +214,24 @@ class ExtractionEngine private constructor(private val context: Context) {
                 if (extractionJob?.isActive != true) break
 
                 ExtractionState.addLog("Clicking ${index + 1}/${clickables.size}")
-                clickable.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
-                delay(1200)
+                val bounds = android.graphics.Rect()
+                clickable.getBoundsInScreen(bounds)
+                val clicked = clickable.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                if (!clicked && bounds.width() > 0 && bounds.height() > 0) {
+                    val centerX = bounds.centerX()
+                    val centerY = bounds.centerY()
+                    ShizukuManager.executeShell("input tap $centerX $centerY")
+                }
+                delay(1400)
 
                 val newActivity = ShizukuManager.getCurrentActivity()
-                if (newActivity != activityName && !newActivity.contains("InputMethod")) {
+                val currentRoot = service?.getRootNode()
+                val newHash = if (currentRoot != null) hashScreen(newActivity, getRootResourceId(currentRoot)) else ""
+
+                if (!visitedScreens.contains(newHash) && !newActivity.contains("InputMethod") && newHash.isNotEmpty()) {
                     processCurrentScreen(packageName, depth + 1)
                     service?.performBack()
-                    delay(800)
+                    delay(1000)
                 }
             }
         }
